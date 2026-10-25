@@ -1,0 +1,26 @@
+// Função serverless da Vercel: o JARVIS conversa com o Claude por aqui.
+// Defina ANTHROPIC_API_KEY nas variáveis de ambiente do projeto (Settings > Environment Variables).
+module.exports = async (req, res) => {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'método não permitido' });
+  if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ error: 'ANTHROPIC_API_KEY ausente' });
+  const { messages = [], ctx = '' } = req.body || {};
+  const clean = messages.slice(-8).map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content).slice(0, 4000) }));
+  if (!clean.length) return res.status(400).json({ error: 'sem mensagens' });
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: process.env.CLAUDE_MODEL || 'claude-sonnet-5-5',
+        max_tokens: 600,
+        system: 'Você é uma assistente digital feminina, calma, elegante e concisa. Fale português do Brasil. Entenda o assunto do que o usuário disser (muitas vezes vem de fala transcrita, então pode ter erros) e responda de forma útil e curta. ' + ctx,
+        messages: clean,
+      }),
+    });
+    const j = await r.json();
+    if (!r.ok) return res.status(502).json({ error: (j.error && j.error.message) || 'erro na API' });
+    res.json({ text: j.content.filter(b => b.type === 'text').map(b => b.text).join('\n') });
+  } catch (e) {
+    res.status(502).json({ error: 'falha ao falar com a API' });
+  }
+};
